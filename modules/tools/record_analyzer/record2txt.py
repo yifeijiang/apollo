@@ -45,14 +45,14 @@ def process(control_analyzer, planning_analyzer, lidar_endtoend_analyzer,
             else:
                 is_auto_drive = False
 
-        if msg.topic == "/apollo/control":
+        
             if (not is_auto_drive and not all_data) or \
                 is_simulation or plot_planning_path or plot_planning_refpath:
                 continue
             control_cmd = control_cmd_pb2.ControlCommand()
             control_cmd.ParseFromString(msg.message)
             control_analyzer.put(control_cmd)
-            lidar_endtoend_analyzer.put_pb('control', control_cmd)
+            lidar_endtoend_analyzer.put_control(control_cmd)
 
         if msg.topic == "/apollo/planning":
             if (not is_auto_drive) and (not all_data):
@@ -60,7 +60,7 @@ def process(control_analyzer, planning_analyzer, lidar_endtoend_analyzer,
             adc_trajectory = planning_pb2.ADCTrajectory()
             adc_trajectory.ParseFromString(msg.message)
             planning_analyzer.put(adc_trajectory)
-            lidar_endtoend_analyzer.put_pb('planning', adc_trajectory)
+            lidar_endtoend_analyzer.put_planning(adc_trajectory)
 
             if plot_planning_path:
                 planning_analyzer.plot_path(plt, adc_trajectory)
@@ -82,7 +82,6 @@ def process(control_analyzer, planning_analyzer, lidar_endtoend_analyzer,
                 continue
             perception = perception_obstacle_pb2.PerceptionObstacles()
             perception.ParseFromString(msg.message)
-            lidar_endtoend_analyzer.put_pb('perception', perception)
 
         if msg.topic == "/apollo/prediction":
             if ((not is_auto_drive) and (not all_data)) or is_simulation or \
@@ -90,58 +89,32 @@ def process(control_analyzer, planning_analyzer, lidar_endtoend_analyzer,
                 continue
             prediction = prediction_obstacle_pb2.PredictionObstacles()
             prediction.ParseFromString(msg.message)
-            lidar_endtoend_analyzer.put_pb('prediction', prediction)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print "usage: python main.py record_file"
-    parser = argparse.ArgumentParser(
-        description="Recode Analyzer is a tool to analyze record files.",
-        prog="main.py")
+    fn = sys.argv[1]
+    reader = RecordReader(fn)
+    for msg in reader.read_messages():
+        if msg.topic == "/apollo/planning":
+            adc_trajectory = planning_pb2.ADCTrajectory()
+            adc_trajectory.ParseFromString(msg.message)
+            fo = "planning_" + str(int(adc_trajectory.header.timestamp_sec * 1000)) 
 
-    parser.add_argument(
-        "-f", "--file", action="store", type=str, required=True,
-        help="Specify the record file for analysis.")
+            with open(fo + ".txt", 'w') as f:
+                f.write(str(adc_trajectory))
+            
+            with open(fo + ".bin", 'wb') as f:
+                f.write(adc_trajectory.SerializeToString())
+        if msg.topic == "/apollo/control":
+            pass
+        if msg.topic == "/apollo/canbus/chassis":
+            chassis = chassis_pb2.Chassis()
+            chassis.ParseFromString(msg.message)
+            fo = "chassis_" + str(int(chassis.header.timestamp_sec * 1000)) 
 
-    parser.add_argument(
-        "-sim", "--simulation", action="store_const", const=True,
-        help="For dreamland API call")
-
-    parser.add_argument(
-        "-path", "--planningpath", action="store_const", const=True,
-        help="plot planing paths in cartesian coordinate.")
-
-    parser.add_argument(
-        "-refpath", "--planningrefpath", action="store_const", const=True,
-        help="plot planing reference paths in cartesian coordinate.")
-
-    parser.add_argument(
-        "-a", "--alldata", action="store_const", const=True,
-        help="Analyze all data (both auto and manual), otherwise auto data only without this option.")
-
-    parser.add_argument(
-        "-acc", "--showacc", action="store_const", const=True,
-        help="Analyze all data (both auto and manual), otherwise auto data only without this option.")
-
-    args = parser.parse_args()
-
-    record_file = args.file
-    reader = RecordReader(record_file)
-
-    control_analyzer = ControlAnalyzer()
-    planning_analyzer = PlannigAnalyzer(args)
-    lidar_endtoend_analyzer = LidarEndToEndAnalyzer()
-
-    process(control_analyzer, planning_analyzer,
-            lidar_endtoend_analyzer, args.simulation, args.planningpath,
-            args.planningrefpath, args.alldata)
-
-    if args.simulation:
-        planning_analyzer.print_sim_results()
-    elif args.planningpath or args.planningrefpath:
-        plt.axis('equal')
-        plt.show()
-    else:
-        control_analyzer.print_latency_statistics()
-        planning_analyzer.print_latency_statistics()
-        lidar_endtoend_analyzer.print_endtoend_latency()
+            with open(fo + ".txt", 'w') as f:
+                f.write(str(chassis))
+            
+            with open(fo + ".bin", 'wb') as f:
+                f.write(chassis.SerializeToString())
